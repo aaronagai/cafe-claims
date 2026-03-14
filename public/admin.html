@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cafe Claims — Admin</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page-wrapper">
+    <!-- Navbar -->
+    <nav class="navbar">
+      <div class="navbar-brand">
+        <span class="icon">☕</span>
+        Cafe Claims
+        <span style="font-size:0.75rem; background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px; margin-left:4px;">Admin</span>
+      </div>
+      <div class="navbar-right">
+        <span class="navbar-user" id="navUser"></span>
+        <button class="btn btn-ghost" id="logoutBtn">Sign Out</button>
+      </div>
+    </nav>
+
+    <div class="container">
+      <!-- Stats Row -->
+      <div class="stats-row" id="statsRow">
+        <div class="stat-card">
+          <div class="stat-value" id="statTotal">—</div>
+          <div class="stat-label">Total Claims</div>
+        </div>
+        <div class="stat-card stat-pending">
+          <div class="stat-value" id="statPending">—</div>
+          <div class="stat-label">Pending</div>
+        </div>
+        <div class="stat-card stat-approved">
+          <div class="stat-value" id="statApproved">—</div>
+          <div class="stat-label">Approved</div>
+        </div>
+        <div class="stat-card stat-rejected">
+          <div class="stat-value" id="statRejected">—</div>
+          <div class="stat-label">Rejected</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="pending">Pending Review</button>
+        <button class="tab-btn" data-tab="all">All Claims</button>
+      </div>
+
+      <!-- Pending Tab -->
+      <div class="tab-panel active" id="tab-pending">
+        <div class="page-header">
+          <h2>Pending Claims</h2>
+        </div>
+        <div id="pendingList">
+          <div class="loading-text"><span class="spinner"></span></div>
+        </div>
+      </div>
+
+      <!-- All Claims Tab -->
+      <div class="tab-panel" id="tab-all">
+        <div class="page-header">
+          <h2>All Claims</h2>
+        </div>
+        <div class="filter-bar">
+          <span class="filter-label">Filter:</span>
+          <select id="allStatusFilter">
+            <option value="">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <select id="allCategoryFilter">
+            <option value="">All Categories</option>
+            <option value="groceries">Groceries</option>
+            <option value="ice">Ice</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div id="allClaimsList">
+          <div class="loading-text"><span class="spinner"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Review Modal -->
+  <div class="modal-overlay" id="reviewModal">
+    <div class="modal">
+      <div class="modal-title" id="modalTitle">Review Claim</div>
+
+      <div id="modalClaimInfo" style="margin-bottom:1rem; padding:1rem; background:var(--bg); border-radius:8px; font-size:0.92rem; line-height:1.8;"></div>
+
+      <div class="form-group">
+        <label for="adminComment">Comment (optional)</label>
+        <textarea
+          id="adminComment"
+          placeholder="Leave a note for the member…"
+          rows="3"
+        ></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="rejectBtn">✗ Reject</button>
+        <button class="btn btn-success" id="approveBtn">✓ Approve</button>
+      </div>
+      <div style="margin-top:0.75rem;">
+        <button class="btn btn-outline btn-block" id="cancelModalBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // ── Auth guard ──────────────────────────────────────────
+    let currentUser = null;
+
+    async function init() {
+      try {
+        const res = await fetch('/api/me');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!data.user || data.user.role !== 'admin') throw new Error();
+        currentUser = data.user;
+        document.getElementById('navUser').textContent = currentUser.display_name;
+        setupTabs();
+        loadStats();
+        loadPending();
+      } catch {
+        window.location.href = '/';
+      }
+    }
+
+    init();
+
+    // ── Logout ──────────────────────────────────────────────
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/';
+    });
+
+    // ── Tabs ────────────────────────────────────────────────
+    function setupTabs() {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+          if (btn.dataset.tab === 'all') loadAll();
+          if (btn.dataset.tab === 'pending') loadPending();
+        });
+      });
+    }
+
+    // ── Stats ────────────────────────────────────────────────
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/claims/stats');
+        const { stats } = await res.json();
+        document.getElementById('statTotal').textContent   = stats.total;
+        document.getElementById('statPending').textContent = stats.pending;
+        document.getElementById('statApproved').textContent = stats.approved;
+        document.getElementById('statRejected').textContent = stats.rejected;
+      } catch {}
+    }
+
+    // ── Pending claims ───────────────────────────────────────
+    let pendingClaims = [];
+
+    async function loadPending() {
+      document.getElementById('pendingList').innerHTML =
+        '<div class="loading-text"><span class="spinner"></span></div>';
+      try {
+        const res = await fetch('/api/claims/pending');
+        const data = await res.json();
+        pendingClaims = data.claims || [];
+        renderPending();
+      } catch {
+        document.getElementById('pendingList').innerHTML =
+          '<div class="alert alert-error">Failed to load claims.</div>';
+      }
+    }
+
+    function renderPending() {
+      const el = document.getElementById('pendingList');
+      if (pendingClaims.length === 0) {
+        el.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">✅</div>
+            <p>No pending claims — all caught up!</p>
+          </div>`;
+        return;
+      }
+      el.innerHTML = `<div class="claim-list">${pendingClaims.map(c => adminClaimCardHTML(c, true)).join('')}</div>`;
+      attachReviewHandlers();
+    }
+
+    // ── All claims ───────────────────────────────────────────
+    let allClaims = [];
+
+    async function loadAll() {
+      document.getElementById('allClaimsList').innerHTML =
+        '<div class="loading-text"><span class="spinner"></span></div>';
+      try {
+        const res = await fetch('/api/claims');
+        const data = await res.json();
+        allClaims = data.claims || [];
+        renderAll();
+      } catch {
+        document.getElementById('allClaimsList').innerHTML =
+          '<div class="alert alert-error">Failed to load claims.</div>';
+      }
+    }
+
+    document.getElementById('allStatusFilter').addEventListener('change', renderAll);
+    document.getElementById('allCategoryFilter').addEventListener('change', renderAll);
+
+    function renderAll() {
+      const statusF   = document.getElementById('allStatusFilter').value;
+      const categoryF = document.getElementById('allCategoryFilter').value;
+      let claims = allClaims;
+      if (statusF)   claims = claims.filter(c => c.status === statusF);
+      if (categoryF) claims = claims.filter(c => c.category === categoryF);
+
+      const el = document.getElementById('allClaimsList');
+      if (claims.length === 0) {
+        el.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <p>No claims match the selected filters.</p>
+          </div>`;
+        return;
+      }
+      el.innerHTML = `<div class="claim-list">${claims.map(c => adminClaimCardHTML(c, c.status === 'pending')).join('')}</div>`;
+      attachReviewHandlers();
+    }
+
+    // ── Claim card HTML (admin version) ─────────────────────
+    function adminClaimCardHTML(c, showActions) {
+      const statusBadge  = badgeHTML(c.status);
+      const categoryChip = categoryHTML(c.category);
+      const notesHtml = c.notes
+        ? `<div class="claim-notes">📝 ${escapeHTML(c.notes)}</div>` : '';
+      const commentHtml = c.admin_comment
+        ? `<div class="claim-comment ${c.status}-comment">
+             ${c.status === 'approved' ? '✓' : '✗'} Admin note: ${escapeHTML(c.admin_comment)}
+           </div>` : '';
+      const actionsHtml = showActions
+        ? `<div class="claim-actions">
+             <button class="btn btn-success btn-sm review-btn"
+               data-id="${c.id}" data-action="approve">✓ Approve</button>
+             <button class="btn btn-danger btn-sm review-btn"
+               data-id="${c.id}" data-action="reject">✗ Reject</button>
+           </div>` : '';
+
+      return `
+        <div class="claim-card ${c.status}" id="claim-card-${c.id}">
+          <div class="claim-header">
+            <div class="claim-description">${escapeHTML(c.description)}</div>
+            <div class="claim-amount">$${parseFloat(c.amount).toFixed(2)}</div>
+          </div>
+          <div class="claim-meta">
+            ${statusBadge}
+            <span class="dot">•</span>
+            ${categoryChip}
+            <span class="dot">•</span>
+            <span>${formatDate(c.claim_date)}</span>
+            <span class="dot">•</span>
+            <span class="submitter-tag">👤 ${escapeHTML(c.submitter_name || c.submitter_username || 'Unknown')}</span>
+            <span class="dot">•</span>
+            <span>Submitted ${formatDateTime(c.created_at)}</span>
+          </div>
+          ${notesHtml}
+          ${commentHtml}
+          ${actionsHtml}
+        </div>`;
+    }
+
+    // ── Quick action (approve/reject without modal for direct buttons) ──
+    function attachReviewHandlers() {
+      document.querySelectorAll('.review-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id     = parseInt(btn.dataset.id);
+          const action = btn.dataset.action; // 'approve' or 'reject'
+          openModal(id, action);
+        });
+      });
+    }
+
+    // ── Review Modal ─────────────────────────────────────────
+    let modalClaimId   = null;
+    let modalAction    = null;
+
+    function openModal(claimId, action) {
+      modalClaimId = claimId;
+      modalAction  = action;
+
+      // Find claim from either list
+      const claim = [...pendingClaims, ...allClaims].find(c => c.id === claimId);
+
+      document.getElementById('modalTitle').textContent =
+        action === 'approve' ? '✓ Approve Claim' : '✗ Reject Claim';
+
+      if (claim) {
+        document.getElementById('modalClaimInfo').innerHTML = `
+          <strong>${escapeHTML(claim.description)}</strong><br/>
+          Amount: <strong>$${parseFloat(claim.amount).toFixed(2)}</strong> &nbsp;|&nbsp;
+          Category: ${categoryHTML(claim.category)} &nbsp;|&nbsp;
+          Date: ${formatDate(claim.claim_date)}<br/>
+          Submitted by: <strong>${escapeHTML(claim.submitter_name || '')}</strong>
+          ${claim.notes ? `<br/>Notes: ${escapeHTML(claim.notes)}` : ''}
+        `;
+      }
+
+      document.getElementById('adminComment').value = '';
+      document.getElementById('reviewModal').classList.add('active');
+      document.getElementById('adminComment').focus();
+    }
+
+    function closeModal() {
+      document.getElementById('reviewModal').classList.remove('active');
+      modalClaimId = null;
+      modalAction  = null;
+    }
+
+    document.getElementById('cancelModalBtn').addEventListener('click', closeModal);
+    document.getElementById('reviewModal').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('reviewModal')) closeModal();
+    });
+
+    document.getElementById('approveBtn').addEventListener('click', () => submitReview('approved'));
+    document.getElementById('rejectBtn').addEventListener('click',  () => submitReview('rejected'));
+
+    async function submitReview(status) {
+      if (!modalClaimId) return;
+      const comment = document.getElementById('adminComment').value.trim();
+
+      const approveBtn = document.getElementById('approveBtn');
+      const rejectBtn  = document.getElementById('rejectBtn');
+      approveBtn.disabled = true;
+      rejectBtn.disabled  = true;
+
+      try {
+        const res = await fetch(`/api/claims/${modalClaimId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, admin_comment: comment || undefined })
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          alert(data.error || 'Failed to update claim.');
+          return;
+        }
+
+        closeModal();
+
+        // Refresh everything
+        await Promise.all([loadStats(), loadPending()]);
+
+        // If all-claims tab is active, reload it too
+        if (document.getElementById('tab-all').classList.contains('active')) {
+          await loadAll();
+        }
+      } catch {
+        alert('Network error. Please try again.');
+      } finally {
+        approveBtn.disabled = false;
+        rejectBtn.disabled  = false;
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cafe Claims — Login</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="login-page">
+    <div class="login-box">
+      <div class="login-logo">
+        <span class="logo-icon">☕</span>
+        <h1>Cafe Claims</h1>
+        <p>Family expense management</p>
+      </div>
+
+      <div id="loginAlert" class="alert alert-error" style="display:none;"></div>
+
+      <form id="loginForm" novalidate>
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            placeholder="Enter your username"
+            autocomplete="username"
+            autocapitalize="none"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            placeholder="Enter your password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="loginBtn">
+          Sign In
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // If already logged in, redirect
+    fetch('/api/me')
+      .then(r => r.json())
+      .then(data => {
+        if (data.user) {
+          redirect(data.user.role);
+        }
+      })
+      .catch(() => {});
+
+    function redirect(role) {
+      window.location.href = role === 'admin' ? '/admin' : '/dashboard';
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      const alert = document.getElementById('loginAlert');
+      alert.style.display = 'none';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      if (!username || !password) {
+        showAlert('Please enter your username and password.');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          showAlert(data.error || 'Login failed.');
+          return;
+        }
+
+        redirect(data.user.role);
+      } catch (err) {
+        showAlert('Network error. Please try again.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
+    });
+
+    function showAlert(msg) {
+      const el = document.getElementById('loginAlert');
+      el.textContent = '⚠ ' + msg;
+      el.style.display = 'flex';
+    }
+  </script>
+</body>
+</html>
