@@ -16,8 +16,7 @@
         <span style="font-size:0.75rem; background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px; margin-left:4px;">Admin</span>
       </div>
       <div class="navbar-right">
-        <span class="navbar-user" id="navUser"></span>
-        <button class="btn btn-ghost" id="logoutBtn">Sign Out</button>
+        <a href="/" class="btn btn-ghost">Submit Claim</a>
       </div>
     </nav>
 
@@ -113,32 +112,9 @@
 
   <script src="app.js"></script>
   <script>
-    // ── Auth guard ──────────────────────────────────────────
-    let currentUser = null;
-
-    async function init() {
-      try {
-        const res = await fetch('/api/me');
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        if (!data.user || data.user.role !== 'admin') throw new Error();
-        currentUser = data.user;
-        document.getElementById('navUser').textContent = currentUser.display_name;
-        setupTabs();
-        loadStats();
-        loadPending();
-      } catch {
-        window.location.href = '/';
-      }
-    }
-
-    init();
-
-    // ── Logout ──────────────────────────────────────────────
-    document.getElementById('logoutBtn').addEventListener('click', async () => {
-      await fetch('/api/logout', { method: 'POST' });
-      window.location.href = '/';
-    });
+    setupTabs();
+    loadStats();
+    loadPending();
 
     // ── Tabs ────────────────────────────────────────────────
     function setupTabs() {
@@ -268,7 +244,7 @@
             <span class="dot">•</span>
             <span>${formatDate(c.claim_date)}</span>
             <span class="dot">•</span>
-            <span class="submitter-tag">👤 ${escapeHTML(c.submitter_name || c.submitter_username || 'Unknown')}</span>
+            <span class="submitter-tag">👤 ${escapeHTML(c.claimant_name || 'Unknown')}</span>
             <span class="dot">•</span>
             <span>Submitted ${formatDateTime(c.created_at)}</span>
           </div>
@@ -309,7 +285,7 @@
           Amount: <strong>$${parseFloat(claim.amount).toFixed(2)}</strong> &nbsp;|&nbsp;
           Category: ${categoryHTML(claim.category)} &nbsp;|&nbsp;
           Date: ${formatDate(claim.claim_date)}<br/>
-          Submitted by: <strong>${escapeHTML(claim.submitter_name || '')}</strong>
+          Submitted by: <strong>${escapeHTML(claim.claimant_name || '')}</strong>
           ${claim.notes ? `<br/>Notes: ${escapeHTML(claim.notes)}` : ''}
         `;
       }
