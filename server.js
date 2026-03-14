@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { run, get, all, initialize } = require('./database');
+const { query, initialize } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,18 +23,17 @@ app.post('/api/claims', async (req, res) => {
       return res.status(400).json({ error: 'Amount must be a positive number' });
     }
 
-    const validCategories = ['groceries', 'ice', 'other'];
-    if (!validCategories.includes(category)) {
+    if (!['groceries', 'ice', 'other'].includes(category)) {
       return res.status(400).json({ error: 'Invalid category' });
     }
 
-    const result = await run(
+    const rows = await query(
       `INSERT INTO claims (claimant_name, description, amount, claim_date, category, notes)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [claimant_name.trim(), description.trim(), parsedAmount, claim_date, category, notes ? notes.trim() : null]
     );
 
-    res.json({ success: true, claim_id: result.lastID });
+    res.json({ success: true, claim_id: rows[0].id });
   } catch (err) {
     console.error('Error inserting claim:', err);
     res.status(500).json({ error: 'Failed to submit claim' });
@@ -44,7 +43,7 @@ app.post('/api/claims', async (req, res) => {
 // GET /api/claims — all claims
 app.get('/api/claims', async (req, res) => {
   try {
-    const claims = await all(`SELECT * FROM claims ORDER BY created_at DESC`);
+    const claims = await query(`SELECT * FROM claims ORDER BY created_at DESC`);
     res.json({ claims });
   } catch (err) {
     console.error('Error fetching claims:', err);
@@ -55,7 +54,7 @@ app.get('/api/claims', async (req, res) => {
 // GET /api/claims/pending
 app.get('/api/claims/pending', async (req, res) => {
   try {
-    const claims = await all(`SELECT * FROM claims WHERE status = 'pending' ORDER BY created_at ASC`);
+    const claims = await query(`SELECT * FROM claims WHERE status = 'pending' ORDER BY created_at ASC`);
     res.json({ claims });
   } catch (err) {
     console.error('Error fetching pending claims:', err);
@@ -66,16 +65,16 @@ app.get('/api/claims/pending', async (req, res) => {
 // GET /api/claims/stats
 app.get('/api/claims/stats', async (req, res) => {
   try {
-    const stats = await get(`
+    const rows = await query(`
       SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'pending'  THEN 1 ELSE 0 END) as pending,
-        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
-        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
-        SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END) as total_approved_amount
+        COUNT(*)::int as total,
+        SUM(CASE WHEN status = 'pending'  THEN 1 ELSE 0 END)::int as pending,
+        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END)::int as approved,
+        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END)::int as rejected,
+        COALESCE(SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END), 0) as total_approved_amount
       FROM claims
     `);
-    res.json({ stats });
+    res.json({ stats: rows[0] });
   } catch (err) {
     console.error('Error fetching stats:', err);
     res.status(500).json({ error: 'Failed to fetch stats' });
@@ -92,14 +91,14 @@ app.patch('/api/claims/:id', async (req, res) => {
       return res.status(400).json({ error: 'Status must be "approved" or "rejected"' });
     }
 
-    const claim = await get('SELECT * FROM claims WHERE id = ?', [claimId]);
-    if (!claim) return res.status(404).json({ error: 'Claim not found' });
-    if (claim.status !== 'pending') {
+    const rows = await query('SELECT * FROM claims WHERE id = $1', [claimId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Claim not found' });
+    if (rows[0].status !== 'pending') {
       return res.status(400).json({ error: 'Only pending claims can be reviewed' });
     }
 
-    await run(
-      `UPDATE claims SET status = ?, admin_comment = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    await query(
+      `UPDATE claims SET status = $1, admin_comment = $2, reviewed_at = NOW() WHERE id = $3`,
       [status, admin_comment ? admin_comment.trim() : null, claimId]
     );
 
